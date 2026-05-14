@@ -1,0 +1,50 @@
+{
+  "name": "pi-ci-gate",
+  "version": "1.0.0",
+  "description": "CI observability gate for AI agents — view workflow runs, job statuses, and logs from Gitea Actions with safety controls.",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "ci",
+    "workflow",
+    "gitea-actions",
+    "observability"
+  ],
+  "author": "nandal <nandal@users.noreply.github.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nandal/pi-ext",
+    "directory": "ci-gate"
+  },
+  "homepage": "https://github.com/nandal/pi-ext/tree/main/ci-gate",
+  "bugs": {
+    "url": "https://github.com/nandal/pi-ext/issues"
+  },
+  "license": "MIT",
+  "main": "./src/index.ts",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "AGENTS.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.9"
+  }
+}

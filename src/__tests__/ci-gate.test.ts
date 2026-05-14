@@ -159,7 +159,7 @@ describe("ci tool definitions", () => {
     expect(listWorkflowsTool.description).toContain("registered CI workflows");
   });
 
-  it("listRunsTool has filter parameters (actor removed — Gitea has no actor field)", () => {
+  it("listRunsTool has filter parameters", () => {
     expect(listRunsTool.name).toBe("ci_list_runs");
     const props = (listRunsTool.parameters as any)?.properties;
     expect(props["workflow"]).toBeDefined();
@@ -167,7 +167,6 @@ describe("ci tool definitions", () => {
     expect(props["branch"]).toBeDefined();
     expect(props["event"]).toBeDefined();
     expect(props["limit"]).toBeDefined();
-    expect(props["actor"]).toBeUndefined();
   });
 
   it("getRunTool requires run_index", () => {
@@ -189,12 +188,12 @@ describe("ci tool definitions", () => {
     expect(props["job_index"]).toBeDefined();
   });
 
-  it("rerunTool requires confirm=true and accepts optional branch", () => {
+  it("rerunTool requires confirm=true and accepts optional failed_only", () => {
     expect(rerunTool.name).toBe("ci_rerun");
     const props = (rerunTool.parameters as any)?.properties;
     expect(props["run_index"]).toBeDefined();
     expect(props["confirm"]).toBeDefined();
-    expect(props["branch"]).toBeDefined();
+    expect(props["failed_only"]).toBeDefined();
     // confirm is required (not optional)
     const required = (rerunTool.parameters as any)?.required || [];
     expect(required).toContain("confirm");

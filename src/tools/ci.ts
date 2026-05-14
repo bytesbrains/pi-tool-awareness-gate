@@ -3,7 +3,38 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../config";
 import { resolveGitea, giteaApi, truncateLogs, checkRateLimit } from "../helpers";
 
-// ─── Helper ─────────────────────────────────────────────────────────────────────
+// ─── Types ──────────────────────────────────────────────────────────────────────
+
+interface GiteaRun {
+  id: number;
+  run_number: number;
+  display_title: string;
+  path: string; // workflow file path, e.g. ".gitea/workflows/ci.yml"
+  event: string;
+  head_branch: string;
+  head_sha: string;
+  status: string; // pending, queued, in_progress
+  conclusion: string | null; // failure, success, skipped, cancelled
+  started_at: string;
+  completed_at: string | null;
+  html_url: string;
+  url: string;
+  run_attempt: number;
+}
+
+interface GiteaJob {
+  id: number;
+  run_id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  started_at: string;
+  completed_at: string | null;
+  head_branch: string;
+  head_sha: string;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────────
 
 function opts(ctx: ExtensionContext) {
   return resolveGitea(ctx.cwd);
@@ -93,19 +124,17 @@ export const listWorkflowsTool = {
   },
 };
 
-// ─── List Tasks (Gitea "runs") ──────────────────────────────────────────────────
-// Gitea models workflows as tasks: each task = a single job within a run.
-// Tasks share a run_number. Status doubles as conclusion (no separate field).
+// ─── List Runs ──────────────────────────────────────────────────────────────────
 
 export const listRunsTool = {
   name: "ci_list_runs" as const,
   label: "List Workflow Runs",
   description:
-    "List workflow runs (Gitea tasks) with optional client-side filters: workflow ID, status, branch, event. Returns task index, status, and timing.",
+    "List workflow runs with optional filters: workflow path, status, branch, event. Returns run ID, status, and timing.",
   parameters: Type.Object({
-    workflow: Type.Optional(Type.String({ description: "Workflow ID to filter by (e.g., 'ci.yml')" })),
+    workflow: Type.Optional(Type.String({ description: "Workflow path or ID to filter by (e.g., '.gitea/workflows/ci.yml' or 'ci.yml')" })),
     status: Type.Optional(
-      Type.String({ description: "Filter by status: unknown, waiting, running, success, failure, cancelled, skipped, blocked" }),
+      Type.String({ description: "Filter by status: pending, queued, in_progress, failure, success, skipped" }),
     ),
     branch: Type.Optional(Type.String({ description: "Filter by branch name" })),
     event: Type.Optional(Type.String({ description: "Filter by trigger event: push, pull_request, schedule" })),
@@ -115,196 +144,200 @@ export const listRunsTool = {
     const config = loadConfig(ctx.cwd);
     const limit = Math.min(params.limit || config.defaultLimit, 50);
 
-    // Gitea tasks endpoint only supports page & limit; filter client-side
-    const r = await giteaApi(`/actions/tasks?limit=${limit}&page=1`, "GET", null, opts(ctx), ctx.cwd);
+    // Build query string with server-side filters (Gitea supports: event, branch, status)
+    const qs = [`limit=${limit}`, "page=1"];
+    if (params.event) qs.push(`event=${encodeURIComponent(params.event)}`);
+    if (params.branch) qs.push(`branch=${encodeURIComponent(params.branch)}`);
+    if (params.status) qs.push(`status=${encodeURIComponent(params.status)}`);
+
+    const r = await giteaApi(`/actions/runs?${qs.join("&")}`, "GET", null, opts(ctx), ctx.cwd);
     if (!r.ok) {
       return {
-        content: [{ type: "text", text: `❌ Failed to list tasks: ${r.error || "unknown"}` }],
+        content: [{ type: "text", text: `❌ Failed to list runs: ${r.error || "unknown"}` }],
         isError: true,
         details: {},
       };
     }
-    let tasks = (r.data as any)?.workflow_runs ?? [];
+    let runs: GiteaRun[] = (r.data as any)?.workflow_runs ?? [];
 
-    // Client-side filters (Gitea doesn't support server-side filtering for tasks)
-    if (params.workflow) tasks = tasks.filter((t: any) => t.workflow_id === params.workflow);
-    if (params.status) tasks = tasks.filter((t: any) => t.status === params.status);
-    if (params.branch) tasks = tasks.filter((t: any) => t.head_branch === params.branch);
-    if (params.event) tasks = tasks.filter((t: any) => t.event === params.event);
-
-    if (tasks.length === 0) {
-      return { content: [{ type: "text", text: "No workflow tasks found." }], details: { count: 0 } };
+    // Client-side workflow filter (Gitea doesn't support server-side workflow filter on /runs)
+    if (params.workflow) {
+      const wf = params.workflow.toLowerCase();
+      runs = runs.filter((run: GiteaRun) => {
+        const path = (run.path || "").toLowerCase();
+        return path.includes(wf) || String(run.id) === wf;
+      });
     }
 
-    const lines = [`🏃 Workflow Tasks (${tasks.length})`, ""];
-    for (const t of tasks) {
-      const icon = statusIcon(t.status);
-      const duration = t.updated_at && t.run_started_at
-        ? formatDuration(t.run_started_at, t.updated_at)
-        : "";
-      lines.push(`   ${icon} #${t.id}  run=${t.run_number}  job: ${t.name}`);
-      lines.push(`        status: ${t.status}  |  ${duration}`);
-      lines.push(`        title: ${t.display_title || "(untitled)"}`);
-      lines.push(`        branch: ${t.head_branch}  |  event: ${t.event}  |  workflow: ${t.workflow_id}`);
+    if (runs.length === 0) {
+      return { content: [{ type: "text", text: "No workflow runs found." }], details: { count: 0 } };
+    }
+
+    const lines = [`🏃 Workflow Runs (${runs.length})`, ""];
+    for (const run of runs) {
+      const icon = statusIcon(run.status, run.conclusion);
+      const duration = run.started_at && run.completed_at
+        ? formatDuration(run.started_at, run.completed_at)
+        : run.started_at
+          ? "running..."
+          : "";
+      lines.push(`   ${icon} id=${run.id}  run#${run.run_number}  ${run.display_title || "(untitled)"}`);
+      lines.push(`        status: ${run.conclusion || run.status}  |  ${duration}`);
+      lines.push(`        branch: ${run.head_branch}  |  event: ${run.event}  |  workflow: ${run.path}`);
+      lines.push(`        commit: ${(run.head_sha || "?").slice(0, 8)}`);
     }
     return {
       content: [{ type: "text", text: lines.join("\n") }],
-      details: { count: tasks.length },
+      details: { count: runs.length, totalCount: (r.data as any)?.total_count },
     };
   },
 };
 
-// ─── Get Run (tasks grouped by run_number) ─────────────────────────────────────
-// Gitea has no individual run endpoint. Fetch all tasks and filter by run_number.
+// ─── Get Run ────────────────────────────────────────────────────────────────────
 
 export const getRunTool = {
   name: "ci_get_run" as const,
   label: "Get Run Details",
   description:
-    "Get all tasks (jobs) for a workflow run by run_number. Gitea has no single-run endpoint so this fetches and filters.",
+    "Get a specific workflow run by ID. Also fetches its jobs so you can see all job statuses at a glance.",
   parameters: Type.Object({
-    run_index: Type.String({ description: "Workflow run number (numeric, e.g. '444')" }),
+    run_index: Type.String({ description: "Workflow run ID (numeric, e.g. '42'). Use ci_list_runs to find IDs." }),
   }),
   async execute(_id: string, params: any, _s: any, _u: any, ctx: ExtensionContext) {
-    const runNumber = parseInt(params.run_index, 10);
-    if (isNaN(runNumber)) {
+    const runId = parseInt(params.run_index, 10);
+    if (isNaN(runId)) {
       return {
-        content: [{ type: "text", text: `❌ Invalid run_index: "${params.run_index}" — must be a numeric run number.` }],
+        content: [{ type: "text", text: `❌ Invalid run_index: "${params.run_index}" — must be a numeric run ID.` }],
         isError: true,
         details: {},
       };
     }
 
-    // Fetch a large page to find all tasks for this run_number
-    const r = await giteaApi(`/actions/tasks?limit=100&page=1`, "GET", null, opts(ctx), ctx.cwd);
-    if (!r.ok) {
+    // Fetch the run directly
+    const runR = await giteaApi(`/actions/runs/${runId}`, "GET", null, opts(ctx), ctx.cwd);
+    if (!runR.ok) {
       return {
-        content: [{ type: "text", text: `❌ Failed to fetch tasks: ${r.error || "unknown"}` }],
+        content: [{ type: "text", text: `❌ Run #${runId} not found: ${runR.error || "unknown"}` }],
         isError: true,
         details: {},
       };
     }
-    const allTasks = (r.data as any)?.workflow_runs ?? [];
-    const tasks = allTasks.filter((t: any) => t.run_number === runNumber);
+    const run: GiteaRun = (runR.data as any) || {};
 
-    if (tasks.length === 0) {
-      return {
-        content: [{ type: "text", text: `❌ Run #${runNumber} not found (no tasks with that run_number in the latest 100).` }],
-        isError: true,
-        details: {},
-      };
+    // Also fetch jobs for this run
+    const jobs: GiteaJob[] = [];
+    const jobsR = await giteaApi(`/actions/runs/${runId}/jobs?limit=100&page=1`, "GET", null, opts(ctx), ctx.cwd);
+    if (jobsR.ok) {
+      jobs.push(...((jobsR.data as any)?.jobs ?? []));
     }
 
-    // Run-level metadata from the first task
-    const first = tasks[0];
-    const title = first.display_title || "(untitled)";
-    const branch = first.head_branch;
-    const event = first.event;
-    const sha = (first.head_sha || "?").slice(0, 8);
-    const created = (first.created_at || "?").slice(0, 19).replace("T", " ");
-    const url = first.url || "—";
-    const workflow = first.workflow_id;
+    const created = (run.started_at || "?").slice(0, 19).replace("T", " ");
+    const sha = (run.head_sha || "?").slice(0, 8);
 
     const lines = [
-      `🏃 Run #${runNumber}`,
-      `   Title:    ${title}`,
-      `   Branch:   ${branch}  |  Event: ${event}`,
-      `   Commit:   ${sha}  |  Workflow: ${workflow}`,
-      `   Created:  ${created}`,
-      `   URL:      ${url}`,
+      `🏃 Run #${run.run_number} (id=${run.id})`,
+      `   Title:    ${run.display_title || "(untitled)"}`,
+      `   Branch:   ${run.head_branch}  |  Event: ${run.event}`,
+      `   Commit:   ${sha}  |  Workflow: ${run.path}`,
+      `   Started:  ${created}`,
+      `   URL:      ${run.html_url || "—"}`,
+      `   Status:   ${run.conclusion || run.status}  |  Attempt: ${run.run_attempt || 1}`,
       "",
-      `   Jobs (${tasks.length}):`,
     ];
-    for (const t of tasks) {
-      const icon = statusIcon(t.status);
-      lines.push(`   ${icon} id=${t.id}  ${t.name}  →  ${t.status}`);
+
+    if (jobs.length > 0) {
+      lines.push(`   Jobs (${jobs.length}):`);
+      for (const j of jobs) {
+        const icon = statusIcon(j.status, j.conclusion);
+        lines.push(`   ${icon} id=${j.id}  ${j.name}  →  ${j.conclusion || j.status}`);
+      }
+    } else {
+      lines.push(`   Jobs: (could not fetch — Gitea may not support /runs/{id}/jobs on this version)`);
     }
+
     return {
       content: [{ type: "text", text: lines.join("\n") }],
-      details: { runNumber, jobCount: tasks.length, workflow },
+      details: { runId, runNumber: run.run_number, jobCount: jobs.length, workflow: run.path },
     };
   },
 };
 
-// ─── List Jobs (Gitea tasks filtered by run_number) ────────────────────────────
-// In Gitea, tasks ARE the jobs. Filter by run_number to show jobs for a run.
+// ─── List Jobs ──────────────────────────────────────────────────────────────────
 
 export const listJobsTool = {
   name: "ci_list_jobs" as const,
   label: "List Run Jobs",
   description:
-    "List jobs (tasks) for a specific workflow run by run_number. In Gitea each task is a job.",
+    "List jobs for a specific workflow run by run ID. Returns job ID, name, status, and duration.",
   parameters: Type.Object({
-    run_index: Type.String({ description: "Workflow run number (numeric, e.g. '444')" }),
+    run_index: Type.String({ description: "Workflow run ID (numeric, e.g. '42'). Use ci_list_runs to find IDs." }),
   }),
   async execute(_id: string, params: any, _s: any, _u: any, ctx: ExtensionContext) {
-    const runNumber = parseInt(params.run_index, 10);
-    if (isNaN(runNumber)) {
+    const runId = parseInt(params.run_index, 10);
+    if (isNaN(runId)) {
       return {
-        content: [{ type: "text", text: `❌ Invalid run_index: "${params.run_index}" — must be a numeric run number.` }],
+        content: [{ type: "text", text: `❌ Invalid run_index: "${params.run_index}" — must be a numeric run ID.` }],
         isError: true,
         details: {},
       };
     }
 
-    // Fetch tasks and filter by run_number
-    const r = await giteaApi(`/actions/tasks?limit=100&page=1`, "GET", null, opts(ctx), ctx.cwd);
+    const r = await giteaApi(`/actions/runs/${runId}/jobs?limit=100&page=1`, "GET", null, opts(ctx), ctx.cwd);
     if (!r.ok) {
       return {
-        content: [{ type: "text", text: `❌ Failed to fetch tasks: ${r.error || "unknown"}` }],
+        content: [{ type: "text", text: `❌ Failed to fetch jobs for run #${runId}: ${r.error || "unknown"}` }],
         isError: true,
         details: {},
       };
     }
-    const allTasks = (r.data as any)?.workflow_runs ?? [];
-    const jobs = allTasks.filter((t: any) => t.run_number === runNumber);
+    const jobs: GiteaJob[] = (r.data as any)?.jobs ?? [];
 
     if (jobs.length === 0) {
-      return { content: [{ type: "text", text: `No jobs found for run #${runNumber} (not found in latest 100 tasks).` }], details: { count: 0 } };
+      return { content: [{ type: "text", text: `No jobs found for run #${runId}.` }], details: { count: 0 } };
     }
 
-    const lines = [`📋 Jobs for Run #${runNumber} (${jobs.length})`, ""];
+    const lines = [`📋 Jobs for Run #${runId} (${jobs.length})`, ""];
     for (const j of jobs) {
-      const icon = statusIcon(j.status);
-      const duration = j.updated_at && j.run_started_at
-        ? formatDuration(j.run_started_at, j.updated_at)
-        : "";
+      const icon = statusIcon(j.status, j.conclusion);
+      const duration = j.started_at && j.completed_at
+        ? formatDuration(j.started_at, j.completed_at)
+        : j.started_at
+          ? "running..."
+          : "";
       lines.push(`   ${icon} id=${j.id}  ${j.name}`);
-      lines.push(`        status: ${j.status}  |  ${duration}`);
-      lines.push(`        workflow: ${j.workflow_id}  |  event: ${j.event}`);
+      lines.push(`        status: ${j.conclusion || j.status}  |  ${duration}`);
+      if (j.head_branch) {
+        lines.push(`        branch: ${j.head_branch}  |  commit: ${(j.head_sha || "?").slice(0, 8)}`);
+      }
     }
     return {
       content: [{ type: "text", text: lines.join("\n") }],
-      details: { runNumber, count: jobs.length },
+      details: { runId, count: jobs.length },
     };
   },
 };
 
 // ─── Get Logs ───────────────────────────────────────────────────────────────────
-// Gitea: GET /actions/jobs/{job_id}/logs where job_id = task.id
 
 export const getLogsTool = {
   name: "ci_get_logs" as const,
   label: "Get Job Logs",
   description:
-    "Get logs for a job (task) by job_id, or all jobs in a run by run_number. Logs are truncated to the configured max lines, showing the head and tail.",
+    "Get logs for a job by job ID, or all jobs in a run by run ID. Logs are truncated to the configured max lines, showing the head and tail.",
   parameters: Type.Object({
-    run_index: Type.String({ description: "Workflow run number (numeric, used to find all jobs if job_index is omitted)" }),
-    job_index: Type.Optional(Type.String({ description: "Job/task ID (numeric, e.g. '1657'). If provided, fetches just that job's logs directly." })),
+    run_index: Type.String({ description: "Workflow run ID (numeric). If job_index is omitted, fetches logs for all jobs in this run." }),
+    job_index: Type.Optional(Type.String({ description: "Job ID (numeric, e.g. '512'). If provided, fetches just that job's logs directly." })),
   }),
   async execute(_id: string, params: any, _s: any, _u: any, ctx: ExtensionContext) {
     const config = loadConfig(ctx.cwd);
 
-    // If a specific job (internal Gitea job) ID is provided, fetch its logs directly
+    // Path A: direct job ID — fetch that specific job's logs
     if (params.job_index) {
       const jobId = params.job_index;
       const r = await giteaApi(`/actions/jobs/${jobId}/logs`, "GET", null, opts(ctx), ctx.cwd);
       if (!r.ok) {
-        const hint = r.statusCode === 500
-          ? `\n   💡 Note: Gitea job IDs are internal and differ from task IDs. Find job IDs via the Gitea web UI (e.g., http://127.0.0.1:3001/factory/wrok.in/actions).`
-          : "";
         return {
-          content: [{ type: "text", text: `❌ Failed to get logs for job #${jobId}: ${r.error || "no logs available"}${hint}` }],
+          content: [{ type: "text", text: `❌ Failed to get logs for job #${jobId}: ${r.error || "no logs available"}` }],
           isError: true,
           details: {},
         };
@@ -320,71 +353,63 @@ export const getLogsTool = {
       };
     }
 
-    // No job_index — need to find jobs for the run_number
-    // ⚠️ Gitea limitation: task IDs ≠ job IDs; no API to map between them.
-    const runNumber = parseInt(params.run_index, 10);
-    if (isNaN(runNumber)) {
+    // Path B: run ID — discover jobs via /runs/{id}/jobs, then fetch each job's logs
+    const runId = parseInt(params.run_index, 10);
+    if (isNaN(runId)) {
       return {
-        content: [{ type: "text", text: `❌ Invalid run_index: "${params.run_index}" — must be a numeric run number.` }],
+        content: [{ type: "text", text: `❌ Invalid run_index: "${params.run_index}" — must be a numeric run ID.` }],
         isError: true,
         details: {},
       };
     }
 
-    // Fetch tasks to show what jobs exist in this run, then try each as a job ID
-    const tasksR = await giteaApi(`/actions/tasks?limit=100&page=1`, "GET", null, opts(ctx), ctx.cwd);
-    if (!tasksR.ok) {
+    const jobsR = await giteaApi(`/actions/runs/${runId}/jobs?limit=100&page=1`, "GET", null, opts(ctx), ctx.cwd);
+    if (!jobsR.ok) {
       return {
-        content: [{ type: "text", text: `❌ Failed to fetch tasks for run #${runNumber}` }],
+        content: [{ type: "text", text: `❌ Failed to fetch jobs for run #${runId}: ${jobsR.error || "unknown"}` }],
         isError: true,
         details: {},
       };
     }
-    const allTasks = (tasksR.data as any)?.workflow_runs ?? [];
-    const tasks = allTasks.filter((t: any) => t.run_number === runNumber);
-    if (tasks.length === 0) {
-      return { content: [{ type: "text", text: `No jobs found for run #${runNumber}.` }], details: {} };
+    const jobs: GiteaJob[] = (jobsR.data as any)?.jobs ?? [];
+    if (jobs.length === 0) {
+      return { content: [{ type: "text", text: `No jobs found for run #${runId}.` }], details: {} };
     }
 
-    // Try fetching logs using each task ID as a job ID
-    const parts: string[] = [`📜 Logs for Run #${runNumber} (${tasks.length} tasks)`, ""];
-    let anySucceeded = false;
-    for (const t of tasks) {
-      const logR = await giteaApi(`/actions/jobs/${t.id}/logs`, "GET", null, opts(ctx), ctx.cwd);
-      const icon = statusIcon(t.status);
+    // Fetch logs for each job using its real job ID
+    const parts: string[] = [`📜 Logs for Run #${runId} (${jobs.length} jobs)`, ""];
+    for (const j of jobs) {
+      const logR = await giteaApi(`/actions/jobs/${j.id}/logs`, "GET", null, opts(ctx), ctx.cwd);
+      const icon = statusIcon(j.status, j.conclusion);
       if (logR.ok && typeof logR.data === "string") {
-        anySucceeded = true;
         const { text, truncated, totalLines } = truncateLogs(logR.data, config.maxLogLines);
-        parts.push(`─── ${icon} Task id=${t.id} (${t.name}) ───`);
+        parts.push(`─── ${icon} Job id=${j.id} (${j.name}) ───`);
         if (truncated) parts.push(`   (${totalLines} lines total, showing ${config.maxLogLines} — head + tail)`);
         parts.push(text, "");
       } else {
-        parts.push(`─── ${icon} Task id=${t.id} (${t.name}) — no logs (task IDs ≠ Gitea job IDs)`);
+        parts.push(`─── ${icon} Job id=${j.id} (${j.name}) — no logs available`);
+        parts.push(`   (status: ${j.conclusion || j.status}, error: ${logR.error || "none"})`);
         parts.push("");
       }
     }
-    if (!anySucceeded) {
-      parts.push("💡 Gitea uses separate internal job IDs for logs. Find job IDs via the");
-      parts.push("   Gitea web UI and use ci_get_logs with job_index=<job_id> directly.");
-    }
     return {
       content: [{ type: "text", text: parts.join("\n") }],
-      details: { runNumber, taskCount: tasks.length },
+      details: { runId, jobCount: jobs.length },
     };
   },
 };
 
-// ─── Rerun (via workflow dispatch — Gitea has no native rerun) ─────────────────
+// ─── Rerun ──────────────────────────────────────────────────────────────────────
 
 export const rerunTool = {
   name: "ci_rerun" as const,
   label: "Re-run Workflow",
   description:
-    "Re-run a failed or cancelled workflow. Gitea has no native rerun endpoint — this triggers a new workflow dispatch for the same branch (pass confirm=true).",
+    "Re-run a workflow run (all jobs or just failed jobs). Uses Gitea's native rerun endpoint.",
   parameters: Type.Object({
-    run_index: Type.String({ description: "Workflow run number or task ID to reference" }),
+    run_index: Type.String({ description: "Workflow run ID (numeric). Use ci_list_runs to find IDs." }),
     confirm: Type.Boolean({ description: "Must be true to confirm" }),
-    branch: Type.Optional(Type.String({ description: "Branch to dispatch the workflow on (defaults to the run's head_branch)" })),
+    failed_only: Type.Optional(Type.Boolean({ description: "If true, rerun only failed jobs (default: false, reruns all jobs)" })),
   }),
   async execute(_id: string, params: any, _s: any, _u: any, ctx: ExtensionContext) {
     const config = loadConfig(ctx.cwd);
@@ -394,57 +419,39 @@ export const rerunTool = {
     if (flag) return flag;
 
     // Safety gate 2: explicit confirmation
-    const conf = confirm(params.confirm === true, `dispatch a workflow re-run (run #${params.run_index})`);
+    const action = params.failed_only ? "rerun failed jobs" : "rerun entire run";
+    const conf = confirm(params.confirm === true, `${action} (run #${params.run_index})`);
     if (conf) return conf;
 
     // Safety gate 3: rate limit
     const rl = rateLimit(`rerun:${params.run_index}`, 60);
     if (rl) return rl;
 
-    // Fetch the run's tasks to find the workflow_id and branch
-    const tasksR = await giteaApi(`/actions/tasks?limit=100&page=1`, "GET", null, opts(ctx), ctx.cwd);
-    if (!tasksR.ok) {
+    const runId = parseInt(params.run_index, 10);
+    if (isNaN(runId)) {
       return {
-        content: [{ type: "text", text: `❌ Failed to fetch tasks to find run #${params.run_index}.` }],
-        isError: true,
-        details: {},
-      };
-    }
-    const runNumber = parseInt(params.run_index, 10);
-    const allTasks = (tasksR.data as any)?.workflow_runs ?? [];
-    const runTasks = isNaN(runNumber)
-      ? allTasks.filter((t: any) => String(t.id) === params.run_index)
-      : allTasks.filter((t: any) => t.run_number === runNumber);
-
-    if (runTasks.length === 0) {
-      return {
-        content: [{ type: "text", text: `❌ Run #${params.run_index} not found in recent tasks.` }],
+        content: [{ type: "text", text: `❌ Invalid run_index: "${params.run_index}" — must be a numeric run ID.` }],
         isError: true,
         details: {},
       };
     }
 
-    const workflowId = runTasks[0].workflow_id;
-    const branch = params.branch || runTasks[0].head_branch || "main";
+    // Use Gitea's native rerun endpoint
+    const endpoint = params.failed_only
+      ? `/actions/runs/${runId}/rerun-failed-jobs`
+      : `/actions/runs/${runId}/rerun`;
 
-    // Use Gitea workflow dispatch endpoint
-    const dispatchR = await giteaApi(
-      `/actions/workflows/${encodeURIComponent(workflowId)}/dispatches`,
-      "POST",
-      { ref: `refs/heads/${branch}` },
-      opts(ctx),
-      ctx.cwd,
-    );
+    const dispatchR = await giteaApi(endpoint, "POST", null, opts(ctx), ctx.cwd);
     if (!dispatchR.ok) {
       return {
-        content: [{ type: "text", text: `❌ Failed to dispatch workflow "${workflowId}" on ${branch}: ${dispatchR.error || "unknown"}` }],
+        content: [{ type: "text", text: `❌ Failed to rerun run #${runId}: ${dispatchR.error || "unknown"}` }],
         isError: true,
         details: {},
       };
     }
     return {
-      content: [{ type: "text", text: `🔄 Dispatched workflow "${workflowId}" on branch "${branch}". Check ci_list_runs for the new tasks.` }],
-      details: { workflowId, branch },
+      content: [{ type: "text", text: `🔄 Re-running run #${runId}${params.failed_only ? " (failed jobs only)" : ""}. Check ci_list_runs for the new run.` }],
+      details: { runId, failedOnly: !!params.failed_only },
     };
   },
 };
@@ -457,21 +464,18 @@ export const cancelTool = {
   description:
     "Cancel a running workflow run. ⚠️ Gitea does not expose a cancel endpoint; this will return an error.",
   parameters: Type.Object({
-    run_index: Type.String({ description: "Workflow run number to cancel" }),
+    run_index: Type.String({ description: "Workflow run ID to cancel" }),
     confirm: Type.Boolean({ description: "Must be true to confirm cancellation" }),
   }),
   async execute(_id: string, params: any, _s: any, _u: any, ctx: ExtensionContext) {
     const config = loadConfig(ctx.cwd);
 
-    // Safety gate 1: feature flag
     const flag = guard(config.allowCancel, "ci_cancel");
     if (flag) return flag;
 
-    // Safety gate 2: explicit confirmation
     const conf = confirm(params.confirm === true, `cancel workflow run #${params.run_index}`);
     if (conf) return conf;
 
-    // Safety gate 3: rate limit
     const rl = rateLimit(`cancel:${params.run_index}`, 60);
     if (rl) return rl;
 
@@ -488,14 +492,14 @@ export const cancelTool = {
 
 // ─── Formatting helpers ─────────────────────────────────────────────────────────
 
-// Gitea combines status + conclusion into one field (no separate conclusion)
-function statusIcon(status: string): string {
-  if (status === "running") return "🔄";
-  if (status === "waiting" || status === "blocked") return "⏳";
-  if (status === "cancelled") return "🚫";
-  if (status === "success") return "✅";
-  if (status === "failure") return "❌";
-  if (status === "skipped") return "⏭️";
+function statusIcon(status: string, conclusion: string | null): string {
+  const s = conclusion || status;
+  if (s === "in_progress" || s === "running") return "🔄";
+  if (s === "pending" || s === "queued" || s === "waiting" || s === "blocked") return "⏳";
+  if (s === "cancelled") return "🚫";
+  if (s === "success") return "✅";
+  if (s === "failure") return "❌";
+  if (s === "skipped") return "⏭️";
   return "⚪";
 }
 

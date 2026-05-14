@@ -1,6 +1,6 @@
 {
   "name": "pi-ci-gate",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "CI observability gate for AI agents — view workflow runs, job statuses, and logs from Gitea Actions with safety controls.",
   "keywords": [
     "pi-package",

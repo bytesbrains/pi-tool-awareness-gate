@@ -28,43 +28,36 @@ export function resolveGitea(cwd: string): { repo: string; token: string } {
   return { repo, token: credMatch ? credMatch[2] : (process.env.GITEA_TOKEN || "") };
 }
 
-export function giteaApi(
+export async function giteaApi(
   path: string,
   method: string,
   body: Record<string, unknown> | null,
   opts: { repo: string; token?: string },
-  cwd: string,
-): { ok: boolean; data: unknown; error?: string; statusCode?: number } {
+  _cwd: string,
+): Promise<{ ok: boolean; data: unknown; error?: string; statusCode?: number }> {
   const base = `http://127.0.0.1:3001/api/v1/repos/${opts.repo}`;
-  const headers = [
-    opts.token ? `-H "Authorization: token ${opts.token}"` : "",
-    `-H "Content-Type: application/json"`,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  const dataFlag = body
-    ? `-d '${JSON.stringify(body).replace(/'/g, "'\\''")}'`
-    : "";
-  const cmd = `curl -sf -w "\\n%{http_code}" -X ${method} "${base}${path}" ${headers} ${dataFlag}`;
-  const r = exec(cmd, cwd);
-  if (!r.ok) {
-    const lines = r.stdout.split("\n");
-    const code = lines[lines.length - 1]?.trim();
-    return {
-      ok: false,
-      data: null,
-      statusCode: parseInt(code) || undefined,
-      error:
-        r.stderr || lines.slice(0, -1).join("\n") || "API error",
-    };
-  }
-  const lines = r.stdout.split("\n");
-  const statusCode = parseInt(lines[lines.length - 1]?.trim());
-  const bodyText = lines.slice(0, -1).join("\n");
+  const url = `${base}${path}`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (opts.token) headers["Authorization"] = `token ${opts.token}`;
+
   try {
-    return { ok: true, data: JSON.parse(bodyText), statusCode };
-  } catch {
-    return { ok: true, data: bodyText, statusCode };
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const text = await res.text();
+    const statusCode = res.status;
+    if (!res.ok) {
+      return { ok: false, data: null, statusCode, error: text || `HTTP ${statusCode}` };
+    }
+    try {
+      return { ok: true, data: JSON.parse(text), statusCode };
+    } catch {
+      return { ok: true, data: text, statusCode };
+    }
+  } catch (e: any) {
+    return { ok: false, data: null, error: e.message || "Network error" };
   }
 }
 

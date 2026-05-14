@@ -71,7 +71,7 @@ export const listWorkflowsTool = {
     "List registered CI workflows in the repository. Returns workflow ID, name, path, and state.",
   parameters: Type.Object({}),
   async execute(_id: string, _p: any, _s: any, _u: any, ctx: ExtensionContext) {
-    const r = giteaApi("/actions/workflows", "GET", null, opts(ctx), ctx.cwd);
+    const r = await giteaApi("/actions/workflows", "GET", null, opts(ctx), ctx.cwd);
     if (!r.ok || !r.data) {
       return {
         content: [{ type: "text", text: `❌ Failed to list workflows: ${r.error || "unknown"}` }],
@@ -121,7 +121,7 @@ export const listRunsTool = {
     if (params.actor) queryParts.push(`actor=${encodeURIComponent(params.actor)}`);
     if (params.event) queryParts.push(`event=${encodeURIComponent(params.event)}`);
 
-    const r = giteaApi(`/actions/runs?${queryParts.join("&")}`, "GET", null, opts(ctx), ctx.cwd);
+    const r = await giteaApi(`/actions/runs?${queryParts.join("&")}`, "GET", null, opts(ctx), ctx.cwd);
     if (!r.ok) {
       return {
         content: [{ type: "text", text: `❌ Failed to list runs: ${r.error || "unknown"}` }],
@@ -163,7 +163,7 @@ export const getRunTool = {
   }),
   async execute(_id: string, params: any, _s: any, _u: any, ctx: ExtensionContext) {
     const runIndex = params.run_index;
-    const r = giteaApi(`/actions/runs/${runIndex}`, "GET", null, opts(ctx), ctx.cwd);
+    const r = await giteaApi(`/actions/runs/${runIndex}`, "GET", null, opts(ctx), ctx.cwd);
     if (!r.ok || !r.data) {
       return {
         content: [{ type: "text", text: `❌ Run #${runIndex} not found: ${r.error || "unknown"}` }],
@@ -209,7 +209,7 @@ export const listJobsTool = {
   }),
   async execute(_id: string, params: any, _s: any, _u: any, ctx: ExtensionContext) {
     const runIndex = params.run_index;
-    const r = giteaApi(`/actions/runs/${runIndex}/jobs`, "GET", null, opts(ctx), ctx.cwd);
+    const r = await giteaApi(`/actions/runs/${runIndex}/jobs`, "GET", null, opts(ctx), ctx.cwd);
     if (!r.ok || !r.data) {
       return {
         content: [{ type: "text", text: `❌ Failed to list jobs for run #${runIndex}: ${r.error || "unknown"}` }],
@@ -256,7 +256,7 @@ export const getLogsTool = {
 
     // If a specific job is requested, fetch just that job's logs
     if (params.job_index) {
-      const r = giteaApi(`/actions/runs/${runIndex}/jobs/${params.job_index}/logs`, "GET", null, opts(ctx), ctx.cwd);
+      const r = await giteaApi(`/actions/runs/${runIndex}/jobs/${params.job_index}/logs`, "GET", null, opts(ctx), ctx.cwd);
       if (!r.ok) {
         return {
           content: [{ type: "text", text: `❌ Failed to get logs for job #${params.job_index}: ${r.error || "no logs available"}` }],
@@ -276,7 +276,7 @@ export const getLogsTool = {
     }
 
     // Fetch all jobs' logs — list jobs first, then fetch each
-    const jobsR = giteaApi(`/actions/runs/${runIndex}/jobs`, "GET", null, opts(ctx), ctx.cwd);
+    const jobsR = await giteaApi(`/actions/runs/${runIndex}/jobs`, "GET", null, opts(ctx), ctx.cwd);
     if (!jobsR.ok || !jobsR.data) {
       return {
         content: [{ type: "text", text: `❌ Failed to list jobs for run #${runIndex}` }],
@@ -291,7 +291,7 @@ export const getLogsTool = {
 
     const parts: string[] = [`📜 Logs for Run #${runIndex} (${jobs.length} jobs)`, ""];
     for (const j of jobs) {
-      const logR = giteaApi(`/actions/runs/${runIndex}/jobs/${j.id}/logs`, "GET", null, opts(ctx), ctx.cwd);
+      const logR = await giteaApi(`/actions/runs/${runIndex}/jobs/${j.id}/logs`, "GET", null, opts(ctx), ctx.cwd);
       const raw = logR.ok && typeof logR.data === "string" ? logR.data : logR.ok ? JSON.stringify(logR.data) : `(no logs: ${logR.error || "unknown"})`;
       const { text, truncated, totalLines } = truncateLogs(raw, config.maxLogLines);
       const icon = statusIcon(j.status, j.conclusion);
@@ -332,7 +332,7 @@ export const rerunTool = {
     const rl = rateLimit(`rerun:${params.run_index}`, 60);
     if (rl) return rl;
 
-    const r = giteaApi(`/actions/runs/${params.run_index}/rerun`, "POST", null, opts(ctx), ctx.cwd);
+    const r = await giteaApi(`/actions/runs/${params.run_index}/rerun`, "POST", null, opts(ctx), ctx.cwd);
     if (!r.ok) {
       const detail = r.statusCode === 422 ? "Run may already be in progress or not in a re-runnable state." : r.error;
       return {
@@ -374,7 +374,7 @@ export const cancelTool = {
     const rl = rateLimit(`cancel:${params.run_index}`, 60);
     if (rl) return rl;
 
-    const r = giteaApi(`/actions/runs/${params.run_index}/cancel`, "POST", null, opts(ctx), ctx.cwd);
+    const r = await giteaApi(`/actions/runs/${params.run_index}/cancel`, "POST", null, opts(ctx), ctx.cwd);
     if (!r.ok) {
       return {
         content: [{ type: "text", text: `❌ Failed to cancel #${params.run_index}: ${r.error || "unknown"}` }],

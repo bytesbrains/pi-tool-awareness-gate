@@ -25,7 +25,7 @@ export function resolveGitea(cwd: string): { repo: string; token: string } {
   const match = url.match(/[/:]([^/]+)\/([^/]+?)(?:\.git)?$/);
   const repo = match ? `${match[1]}/${match[2]}` : "factory/wrok.in";
   const credMatch = url.match(/:\/\/([^:]+):([^@]+)@/);
-  return { repo, token: credMatch ? credMatch[2] : "" };
+  return { repo, token: credMatch ? credMatch[2] : (process.env.GITEA_TOKEN || "") };
 }
 
 export function giteaApi(

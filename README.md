@@ -5,14 +5,14 @@
 ## Install
 
 ```bash
-pi install npm:pi-tool-awareness-gate
+pi install npm:@bytesbrains/pi-tool-awareness-gate
 ```
 
 Or add to `.pi/settings.json`:
 
 ```json
 {
-  "packages": ["npm:pi-tool-awareness-gate"]
+  "packages": ["npm:@bytesbrains/pi-tool-awareness-gate"]
 }
 ```
 
@@ -146,7 +146,7 @@ tool-awareness-gate/
 When a gate wants to provide domain-specific quality signals (richer than what inference can detect), it imports the envelope types:
 
 ```typescript
-import type { ToolResultEnvelope } from "pi-tool-awareness-gate/src/types";
+import type { ToolResultEnvelope } from "@bytesbrains/pi-tool-awareness-gate/src/types";
 
 // Gate enriches its own result with domain-specific quality signals
 return {

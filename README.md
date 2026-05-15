@@ -1,7 +1,7 @@
 # CI Gate for Pi
 
-[![npm version](https://img.shields.io/npm/v/pi-ci-gate)](https://www.npmjs.com/package/pi-ci-gate)
-[![license](https://img.shields.io/npm/l/pi-ci-gate)](./LICENSE)
+[![npm version](https://img.shields.io/npm/v/@bytesbrains/pi-ci-gate)](https://www.npmjs.com/package/@bytesbrains/pi-ci-gate)
+[![license](https://img.shields.io/npm/l/@bytesbrains/pi-ci-gate)](./LICENSE)
 
 > CI observability gate for AI agents — view workflow runs, job statuses, and logs from Gitea Actions with safety controls. **Agents self-diagnose CI failures instead of asking humans.**
 
@@ -15,7 +15,7 @@
 ## Install
 
 ```bash
-pi install npm:pi-ci-gate
+pi install npm:@bytesbrains/pi-ci-gate
 ```
 
 ## Tools
@@ -92,10 +92,10 @@ ci_get_run(42)                 ← verify it passed ✅
 Install all four gates for full agent governance:
 
 ```bash
-pi install npm:pi-contrib-gate
-pi install npm:pi-review-gate
-pi install npm:pi-project-gate
-pi install npm:pi-ci-gate
+pi install npm:@bytesbrains/pi-contrib-gate
+pi install npm:@bytesbrains/pi-review-gate
+pi install npm:@bytesbrains/pi-project-gate
+pi install npm:@bytesbrains/pi-ci-gate
 ```
 
 ## License

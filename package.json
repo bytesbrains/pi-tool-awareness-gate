@@ -1,0 +1,51 @@
+{
+  "name": "pi-tool-awareness-gate",
+  "version": "1.0.3",
+  "description": "Tool limitation awareness layer for AI agents — intercepts tool results, infers quality signals, injects limitation reminders, and logs structured envelopes for evaluation.",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "tool-awareness",
+    "quality-signals",
+    "limitation-detection",
+    "agent-protocol",
+    "observability"
+  ],
+  "author": "nandal <nandal@users.noreply.github.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nandal/pi-ext",
+    "directory": "tool-awareness-gate"
+  },
+  "homepage": "https://github.com/nandal/pi-ext/tree/main/tool-awareness-gate",
+  "bugs": {
+    "url": "https://github.com/nandal/pi-ext/issues"
+  },
+  "license": "MIT",
+  "main": "./src/index.ts",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "AGENTS.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0"
+  }
+}

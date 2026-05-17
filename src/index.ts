@@ -75,6 +75,12 @@ export default function (pi: ExtensionAPI) {
     const latencyMs = startTime ? Date.now() - startTime : 0;
     invocationStarts.delete(event.toolCallId);
 
+    // Prune stale entries (>5 min old) to prevent memory leak from orphaned starts
+    const now = Date.now();
+    for (const [key, ts] of invocationStarts) {
+      if (now - ts > 300000) invocationStarts.delete(key);
+    }
+
     // Build raw input for inference
     const raw: RawToolResult = {
       toolName: event.toolName,
@@ -155,6 +161,7 @@ export default function (pi: ExtensionAPI) {
 
     const startTime = invocationStarts.get(event.toolCallId);
     const latencyMs = startTime ? Date.now() - startTime : 0;
+    invocationStarts.delete(event.toolCallId);
 
     const envelope: ToolResultEnvelope = {
       status: "failure",

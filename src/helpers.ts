@@ -1,5 +1,7 @@
 import * as cp from "node:child_process";
 
+// ⚠️ SYNC-MARKER: exec(), resolveGitea(), giteaApi() are duplicated across packages.
+// If changing behavior here, update all copies in: ci-gate, contrib-gate, review-gate, project-gate
 export function exec(
   cmd: string,
   cwd?: string,

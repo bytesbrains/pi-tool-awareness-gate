@@ -37,8 +37,10 @@ export function loadConfig(cwd: string): CiConfig {
         result[m[1]] = val;
       }
     }
+    const maxLogLines = parseInt(result["maxLogLines"] as string);
+    const defaultLimit = parseInt(result["defaultLimit"] as string);
     return {
-      maxLogLines: parseInt(result["maxLogLines"] as string) || DEFAULT_CONFIG.maxLogLines,
+      maxLogLines: isNaN(maxLogLines) ? DEFAULT_CONFIG.maxLogLines : maxLogLines,
       allowRerun:
         result["allowRerun"] !== undefined
           ? result["allowRerun"] === "true"
@@ -47,8 +49,7 @@ export function loadConfig(cwd: string): CiConfig {
         result["allowCancel"] !== undefined
           ? result["allowCancel"] === "true"
           : DEFAULT_CONFIG.allowCancel,
-      defaultLimit:
-        parseInt(result["defaultLimit"] as string) || DEFAULT_CONFIG.defaultLimit,
+      defaultLimit: isNaN(defaultLimit) ? DEFAULT_CONFIG.defaultLimit : defaultLimit,
     };
   } catch {
     return { ...DEFAULT_CONFIG };

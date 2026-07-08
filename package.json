@@ -11,15 +11,14 @@
     "agent-protocol",
     "observability"
   ],
-  "author": "nandal <nandal@users.noreply.github.com>",
+  "author": "BytesBrains Pte Ltd (https://bytesbrains.com)",
   "repository": {
     "type": "git",
-    "url": "https://github.com/nandal/pi-ext",
-    "directory": "tool-awareness-gate"
+    "url": "git+https://github.com/bytesbrains/pi-tool-awareness-gate.git"
   },
-  "homepage": "https://github.com/nandal/pi-ext/tree/main/tool-awareness-gate",
+  "homepage": "https://github.com/bytesbrains/pi-tool-awareness-gate#readme",
   "bugs": {
-    "url": "https://github.com/nandal/pi-ext/issues"
+    "url": "https://github.com/bytesbrains/pi-tool-awareness-gate/issues"
   },
   "license": "MIT",
   "main": "./src/index.ts",

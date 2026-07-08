@@ -1,0 +1,1 @@
+Tool limitation awareness layer for AI agents — intercepts tool results, infers quality signals, injects limitation reminders, and logs structured envelopes for evaluation.

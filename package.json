@@ -1,6 +1,6 @@
 {
   "name": "@bytesbrains/pi-tool-awareness-gate",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Tool limitation awareness layer for AI agents — intercepts tool results, infers quality signals, injects limitation reminders, and logs structured envelopes for evaluation.",
   "keywords": [
     "pi-package",

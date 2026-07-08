@@ -101,3 +101,8 @@ pi install npm:@bytesbrains/pi-ci-gate
 ## License
 
 MIT © [nandal](https://github.com/nandal)
+
+---
+
+Built and maintained by [BytesBrains](https://bytesbrains.com) — AI automation & agents, engineered to production standards.
+*The model proposes, code guarantees.*

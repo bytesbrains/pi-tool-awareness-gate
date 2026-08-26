@@ -45,6 +45,6 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "vitest": "^3.2.6"
+    "vitest": "^4.1.11"
   }
 }
